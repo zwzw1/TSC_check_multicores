@@ -227,6 +227,35 @@ void runBenchmark() {
                 "%0.2lf secs\r\n", time_span);
 }
 
+static __inline __attribute__((always_inline))
+uint64_t
+rdtsc_old()
+{
+    uint32_t lo, hi;
+    //__asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));
+    __asm__ __volatile__("rdtscp" : "=a" (lo), "=d" (hi) : : "%rcx");
+    return (((uint64_t)hi << 32) | lo);
+}
+
+static __inline __attribute__((always_inline))
+uint64_t
+rdtsc(void)
+{
+	union {
+		uint64_t tsc_64;
+		struct {
+			uint32_t lo_32;
+			uint32_t hi_32;
+		};
+	} tsc;
+
+	asm volatile("rdtsc" :
+		     "=a" (tsc.lo_32),
+		     "=d" (tsc.hi_32));
+	return tsc.tsc_64;
+}
+
+
 bool startFlag = false;
 void printTscInThread(int threadid)
 {
@@ -252,7 +281,7 @@ void printTscInThread(int threadid)
     
     for(int i = 0; i < 5000; ++ i)
     {
-        NANO_LOG(WARNING, "CPU %d TSC %ld", cpu, PerfUtils::Cycles::rdtsc());
+        NANO_LOG(WARNING, "CPU %d TSC %ld", cpu, rdtsc());
     }
     NanoLog::sync();
 }
