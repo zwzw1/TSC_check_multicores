@@ -67,42 +67,10 @@ void displayAffinity()
 
 void benchMarkMain()
 {
-    cpu_set_t cpuset; 
 
-    //the CPU we whant to use
-    int cpu = 2;
-
-    CPU_ZERO(&cpuset);       //clears the cpuset
-    CPU_SET( cpu , &cpuset); //set CPU 2 on cpuset
-
-
-    //displayAffinity();
-    cout<<"cur cpu "<<sched_getcpu()<<endl;;
-
-    /*
-    * cpu affinity for the calling thread 
-    * first parameter is the pid, 0 = calling thread
-    * second parameter is the size of your cpuset
-    * third param is the cpuset in which your thread will be
-    * placed. Each bit represents a CPU
-    */
-    //sched_setaffinity(0, sizeof(cpuset), &cpuset);
-    while(true)
-    {
-        //cout<<"cur cpu "<<sched_getcpu()<<endl;;
-        displayAffinity();
-        break;
-        //this_thread::sleep_for(10s);
-    }
 
     runBenchmarkForTsc();
 
-#if 0
-    runBenchmarkForSecondRun();
-
-    runBenchmark();
-    runBenchmarkForOneLog();
-#endif
 
     
 }
@@ -256,7 +224,7 @@ rdtsc(void)
 }
 
 
-bool startFlag = false;
+volatile bool startFlag = false;
 void printTscInThread(int threadid)
 {
     cpu_set_t cpuset; 
@@ -276,11 +244,22 @@ void printTscInThread(int threadid)
     * placed. Each bit represents a CPU
     */
     sched_setaffinity(0, sizeof(cpuset), &cpuset);
-    while(!startFlag)
-    {}
+
+
+
     
-    for(int i = 0; i < 5000; ++ i)
+    
+    for(int i = 0; i < 8000; ++ i)
     {
+        if( i < 1000)
+        {
+            //Warmup wait the log to registered
+        }
+        else
+        {
+            while(!startFlag)
+            {}
+        }
         NANO_LOG(WARNING, "CPU %d TSC %ld", cpu, rdtsc());
     }
     NanoLog::sync();
@@ -294,8 +273,14 @@ void runBenchmarkForTsc() {
     {
         threads.push_back(std::thread(printTscInThread, i));
     }
-    startFlag = true;
 
+    this_thread::sleep_for(1s);//wait for log to warmup
+    for(int64_t i = 0; i < 10; ++ i)
+    {
+        NANO_LOG(WARNING, "Warmup TSC %ld",  rdtsc());
+    }
+    
+    startFlag = true;
     for(auto &t : threads)
     {
         t.join();
