@@ -1,0 +1,1406 @@
+/* Copyright (c) 2018 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+ /**
+  * This file demonstrates the usage of the NanoLog API through the
+  * implementation of simple benchmarking application that reports the
+  * average latency and throughput of the NanoLog system.
+  */
+#include <chrono>
+#include <iostream>
+using namespace std;
+
+// Required to use the NanoLog system
+#include "NanoLogCpp17.h"
+
+
+void runBenchmark();
+void runBenchmarkForOneLog();
+void runBenchmarkForSecondRun() ;
+void runBenchmarkForTsc();
+
+// Optional: Import the NanoLog log levels into the current namespace; this
+// allows the log levels (DEBUG, NOTICE, WARNING, ERROR) to be used without
+// using the NanoLog namespace (i.e. NanoLog::DEBUG).
+using namespace NanoLog::LogLevels;
+void displayAffinity()
+{    
+    int i, nrcpus;
+    cpu_set_t mask;
+    unsigned long bitmask = 0;
+    
+    CPU_ZERO(&mask);
+    
+     /* Get the CPU affinity for a pid */
+    if (sched_getaffinity(0, sizeof(cpu_set_t), &mask) == -1) 
+    {   
+        perror("sched_getaffinity");
+        exit(EXIT_FAILURE);
+    }
+    
+       /* get logical cpu number */
+    nrcpus = sysconf(_SC_NPROCESSORS_CONF);
+    
+    for (i = 0; i < nrcpus; i++)
+    {
+        if (CPU_ISSET(i, &mask))
+        {
+            bitmask |= (unsigned long)0x01 << i;
+            printf("processor #%d is set\n", i); 
+        }
+    }
+    printf("bitmask = %#lx\n", bitmask);
+
+}
+
+void benchMarkMain()
+{
+    cpu_set_t cpuset; 
+
+    //the CPU we whant to use
+    int cpu = 2;
+
+    CPU_ZERO(&cpuset);       //clears the cpuset
+    CPU_SET( cpu , &cpuset); //set CPU 2 on cpuset
+
+
+    //displayAffinity();
+    cout<<"cur cpu "<<sched_getcpu()<<endl;;
+
+    /*
+    * cpu affinity for the calling thread 
+    * first parameter is the pid, 0 = calling thread
+    * second parameter is the size of your cpuset
+    * third param is the cpuset in which your thread will be
+    * placed. Each bit represents a CPU
+    */
+    //sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    while(true)
+    {
+        //cout<<"cur cpu "<<sched_getcpu()<<endl;;
+        displayAffinity();
+        break;
+        //this_thread::sleep_for(10s);
+    }
+
+    runBenchmarkForTsc();
+
+#if 0
+    runBenchmarkForSecondRun();
+
+    runBenchmark();
+    runBenchmarkForOneLog();
+#endif
+
+    
+}
+int main(int argc, char** argv) {
+    // Optional: Set the output location for the NanoLog system. By default
+    // the log will be output to ./compressedLog
+    NanoLog::setLogFile("./logFile");
+
+    NanoLog::setLogLevel(NOTICE);
+
+
+    #if 0
+    // Optional optimization: pre-allocates thread-local data structures
+    // needed by NanoLog. This can be invoked once per new
+    // thread that will use the NanoLog system.
+    NanoLog::preallocate();
+
+    // Optional: Set the minimum LogLevel that log messages must have to be
+    // persisted. Valid from least to greatest values are
+    // DEBUG, NOTICE, WARNING, ERROR
+    NanoLog::setLogLevel(NOTICE);
+
+    NANO_LOG(DEBUG, "This message wont be logged since it is lower "
+                        "than the current log level.");
+
+    // Log levels can be named explicitly if one does not import the LogLevels
+    // namespace with 'using'
+    NANO_LOG(NanoLog::DEBUG, "Another message.");
+
+    // All the standard printf specifiers (except %n) can be used
+    char randomString[] = "Hello World";
+    NANO_LOG(NOTICE, "A string, pointer, number, and float: '%s', %p, %d, %f",
+                        randomString,
+                        &randomString,
+                        512,
+                        3.14159);
+
+    // Even with width and length specifiers
+    NANO_LOG(NOTICE, "Shortend String: '%5s' and shortend float %0.2lf",
+                     randomString,
+                     3.14159);
+
+
+    runBenchmark();
+    #endif
+
+
+    std::vector<std::thread> threads;
+    for(int64_t i = 0; i < 1; ++ i)
+    {
+        threads.push_back(std::thread(benchMarkMain));
+    }
+
+    //runBenchmark();
+    for(auto &t : threads)
+    {
+        t.join();
+    }
+    
+
+    // Optional: Flush all pending log messages to disk
+    NanoLog::sync();
+
+    // Optional: Gather statics generated by NanoLog
+    std::string stats = NanoLog::getStats();
+    printf("%s", stats.c_str());
+
+    // Optional: Prints NanoLog configuration parameters
+    NanoLog::printConfig();
+}
+
+void runBenchmark() {
+
+    NanoLog::preallocate();
+
+
+    // Optional optimization: pre-allocates thread-local data structures
+    // needed by NanoLog. This can be invoked once per new
+    // thread that will use the NanoLog system.
+    //NanoLog::preallocate();
+
+    // Optional: Set the minimum LogLevel that log messages must have to be
+    // persisted. Valid from least to greatest values are
+    // DEBUG, NOTICE, WARNING, ERROR
+
+    float a = 0.123;
+    double b = 23;
+
+
+    const uint64_t RECORDS = 500;
+
+    std::chrono::high_resolution_clock::time_point start, stop;
+    double time_span;
+
+    start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < RECORDS; ++i) 
+    {
+        a += 2*0.732;
+        b -= 3* 134;
+        //NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b );
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        //NANO_LOG(WARNING, "No params check ");
+        
+    }
+    stop = std::chrono::high_resolution_clock::now();
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+
+    printf("The total time spent invoking NANO_LOG with no parameters %lu "
+            "times took %0.2lf seconds (%0.2lf ns/message average)\r\n",
+            RECORDS, time_span, (time_span/RECORDS)*1e9);
+
+    start = std::chrono::high_resolution_clock::now();
+    // Flush all pending log messages to disk
+    //NanoLog::sync();
+    stop = std::chrono::high_resolution_clock::now();
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+    printf("Flushing the log statements to disk took an additional "
+                "%0.2lf secs\r\n", time_span);
+}
+
+bool startFlag = false;
+void printTscInThread(int threadid)
+{
+    cpu_set_t cpuset; 
+
+    //the CPU we whant to use
+    int cpu = threadid + 2;
+
+    CPU_ZERO(&cpuset);       //clears the cpuset
+    CPU_SET( cpu , &cpuset); //set CPU 2 on cpuset
+
+
+    /*
+    * cpu affinity for the calling thread 
+    * first parameter is the pid, 0 = calling thread
+    * second parameter is the size of your cpuset
+    * third param is the cpuset in which your thread will be
+    * placed. Each bit represents a CPU
+    */
+    sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    while(!startFlag)
+    {}
+    
+    for(int i = 0; i < 5000; ++ i)
+    {
+        NANO_LOG(WARNING, "CPU %d TSC %ld", cpu, PerfUtils::Cycles::rdtsc());
+    }
+    NanoLog::sync();
+}
+void runBenchmarkForTsc() {
+
+    NanoLog::preallocate();
+
+    std::vector<std::thread> threads;
+    for(int64_t i = 0; i < 2; ++ i)
+    {
+        threads.push_back(std::thread(printTscInThread, i));
+    }
+    startFlag = true;
+
+    for(auto &t : threads)
+    {
+        t.join();
+    }
+
+
+
+}
+
+
+void runBenchmarkForOneLog() {
+
+    NanoLog::preallocate();
+    cout<<"runBenchmarkForOneLog  "<<endl;
+
+    float a = 0.123;
+    double b = 23;
+
+
+    NANO_LOG(WARNING, "No params check ");
+    
+    NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+    NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+    NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+    const uint64_t RECORDS = 1;
+
+    std::chrono::high_resolution_clock::time_point start, stop;
+    double time_span;
+
+    uint64_t tscStart = PerfUtils::Cycles::rdtsc();
+
+
+
+
+    start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < RECORDS; ++i) 
+    {
+        a += 2*0.732;
+        b -= 3* 134;
+        #if 1
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "No params check ");
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+#endif
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+        
+    }
+
+    
+    uint64_t tscEnd = PerfUtils::Cycles::rdtsc();
+
+    double tscSpanTime = PerfUtils::Cycles::toSeconds(tscEnd - tscStart);
+
+    stop = std::chrono::high_resolution_clock::now();
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+
+    int64_t NANOLOG_NUM = 1000;
+    printf("The total time spent invoking NANO_LOG with no parameters %lu "
+            "times took %0.2lf seconds (%0.2lf ns/message average) ( tsc %0.2lf ns/message average) \r\n",
+            RECORDS, time_span, (time_span/NANOLOG_NUM)*1e9, (tscSpanTime/NANOLOG_NUM)*1e9);
+
+    start = std::chrono::high_resolution_clock::now();
+    // Flush all pending log messages to disk
+    NanoLog::sync();
+    stop = std::chrono::high_resolution_clock::now();
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+    printf("Flushing the log statements to disk took an additional "
+                "%0.2lf secs\r\n", time_span);
+}
+
+void runBenchmarkForSecondRun() {
+
+    NanoLog::preallocate();
+
+
+    // Optional optimization: pre-allocates thread-local data structures
+    // needed by NanoLog. This can be invoked once per new
+    // thread that will use the NanoLog system.
+    //NanoLog::preallocate();
+
+    // Optional: Set the minimum LogLevel that log messages must have to be
+    // persisted. Valid from least to greatest values are
+    // DEBUG, NOTICE, WARNING, ERROR
+
+    float a = 0.123;
+    double b = 23;
+
+
+    const uint64_t RECORDS = 10;
+    const int iterationTime = 10;
+    const int calcIterNum = 5;
+
+    std::chrono::high_resolution_clock::time_point start, stop;
+    double time_span;
+
+    for(int it = 0; it < iterationTime; ++ it)
+    {
+        if(it == calcIterNum)
+        {
+            start = std::chrono::high_resolution_clock::now();
+        }
+        for (int i = 0; i < RECORDS; ++i) 
+        {
+            asm volatile("");
+            a += 2*0.732;
+            b -= 3* 134;
+            //NANO_LOG(NOTICE, "Simple log message with %d parameters %f %f ", i,a,b );
+            //NANO_LOG(WARNING, "check Dynamic %*.*f", 10, 2, 3.1415926);
+            NANO_LOG(WARNING, "No params check ");
+            
+        }
+        if(it == calcIterNum)
+        {
+            stop = std::chrono::high_resolution_clock::now();
+        }
+    }
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+
+    printf("runBenchmarkForSecondRun The total time spent invoking NANO_LOG with no parameters %lu "
+            "times took %0.2lf seconds (%0.2lf ns/message average) calcIterNum %d\r\n",
+            RECORDS, time_span, (time_span/RECORDS)*1e9,calcIterNum);
+
+    start = std::chrono::high_resolution_clock::now();
+    // Flush all pending log messages to disk
+    //NanoLog::sync();
+    stop = std::chrono::high_resolution_clock::now();
+
+    time_span = std::chrono::duration_cast<std::chrono::duration<double>>(
+                                                        stop - start).count();
+    printf("Flushing the log statements to disk took an additional "
+                "%0.2lf secs\r\n", time_span);
+}
+
+
